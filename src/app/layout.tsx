@@ -1,28 +1,23 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import type { ReactNode } from "react";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
 export const metadata: Metadata = {
-  title: "QuizMaker — Create & Share Interactive Quizzes",
-  description: "Teachers create quizzes, share a link or QR code, students take it on their phone without an app, results saved instantly.",
+  title: { default: "QuizMaker", template: "%s · QuizMaker" },
+  description: "Create, publish and share interactive online quizzes with your students. No app or student account required.",
+  applicationName: "QuizMaker",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  themeColor: "#4f46e5",
+};
+
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
-        {children}
-      </body>
+    <html lang="en" className="h-full">
+      <body className="min-h-full bg-slate-50 text-slate-900 antialiased">{children}</body>
     </html>
   );
 }
