@@ -5,6 +5,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { passwordResetTokens, sessions, teachers } from "@/db/schema";
+import { logActivity } from "@/lib/activity";
 import { ensureAdminAccount, getPlatformSettings, logAudit } from "@/lib/admin";
 import { createSession, destroySession, hashPassword, isConfiguredAdminEmail, verifyPassword } from "@/lib/auth";
 import { DEMO_EMAIL, ensureDemoTeacher } from "@/lib/demo-data";
@@ -40,6 +41,7 @@ export async function signup(_prev: AuthState, formData: FormData): Promise<Auth
     .values({ name, email, school: school || null, passwordHash: await hashPassword(password), role, lastLoginAt: new Date() })
     .returning({ id: teachers.id });
   await logAudit({ id: teacher.id, email }, "auth.signup", { type: "teacher", id: teacher.id, label: email }, { role });
+  await logActivity({ id: teacher.id, name }, "auth.signup", undefined, { role });
   await createSession(teacher.id);
   redirect(role === "admin" ? "/admin" : "/dashboard");
 }
@@ -65,6 +67,8 @@ export async function login(_prev: AuthState, formData: FormData): Promise<AuthS
   }
   await db.update(teachers).set({ role, lastLoginAt: new Date() }).where(eq(teachers.id, teacher.id));
   await createSession(teacher.id);
+  await logActivity({ id: teacher.id, name: teacher.name }, "auth.login");
+  if (teacher.mustChangePassword) redirect(role === "admin" ? "/admin/account?welcome=1" : "/settings?welcome=1");
   redirect(role === "admin" ? "/admin" : "/dashboard");
 }
 
@@ -120,7 +124,7 @@ export async function forgotPassword(_prev: AuthState, formData: FormData): Prom
   console.log(`[QuizMaker] Password reset link for ${email}: ${resetUrl}`);
   return {
     success:
-      "A reset link has been generated. Email delivery is not configured on this deployment, so the link was written to the server log — ask your administrator, or set RESEND_API_KEY to enable email.",
+      "Email delivery is not set up on this deployment, so we cannot email you a link. Please ask your administrator to reset your password — they can set a new one or send you a reset link from the admin panel.",
   };
 }
 
@@ -146,7 +150,7 @@ export async function resetPassword(_prev: AuthState, formData: FormData): Promi
   if (!row) return { error: "This reset link is invalid or has expired. Please request a new one." };
 
   await db.transaction(async (tx) => {
-    await tx.update(teachers).set({ passwordHash: await hashPassword(password), updatedAt: new Date() }).where(eq(teachers.id, row.teacherId));
+    await tx.update(teachers).set({ passwordHash: await hashPassword(password), mustChangePassword: false, updatedAt: new Date() }).where(eq(teachers.id, row.teacherId));
     await tx.update(passwordResetTokens).set({ usedAt: new Date() }).where(eq(passwordResetTokens.id, row.id));
     await tx.delete(sessions).where(eq(sessions.teacherId, row.teacherId));
   });

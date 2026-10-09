@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { adminNavItems, icons } from "@/components/nav-items";
+import { PasswordBanner } from "@/components/password-banner";
 import { AppNav } from "@/components/teacher/nav";
 import { requireAdmin } from "@/lib/auth";
 
@@ -14,11 +15,15 @@ export default async function AdminLayout({ children }: { children: ReactNode })
         items={adminNavItems}
         brandHref="/admin"
         brandBadge="Admin"
+        accountHref="/admin/account"
         accent="slate"
         footerLinks={[{ href: "/dashboard", label: "Teacher dashboard", icon: icons.home }]}
       />
       <main className="px-4 py-6 sm:px-6 lg:ml-64 lg:px-10 lg:py-8">
-        <div className="mx-auto max-w-7xl">{children}</div>
+        <div className="mx-auto max-w-7xl">
+          {admin.mustChangePassword && <PasswordBanner href="/admin/account" />}
+          {children}
+        </div>
       </main>
     </div>
   );

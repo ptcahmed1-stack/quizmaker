@@ -6,9 +6,11 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { passwordResetTokens, quizzes, sessions, submissions, teachers } from "@/db/schema";
+import { logActivity } from "@/lib/activity";
 import { deleteAbandonedAttempts, logAudit, updatePlatformSettings } from "@/lib/admin";
+import { assignQuizToTeachers } from "@/lib/assignments";
 import { hashPassword, requireAdmin } from "@/lib/auth";
-import { resetDemoData } from "@/lib/demo-data";
+import { DEMO_EMAIL, resetDemoData } from "@/lib/demo-data";
 import { baseUrlFromHeaders, generateToken, sha256 } from "@/lib/utils";
 import { signupSchema } from "@/lib/validation";
 
@@ -123,7 +125,7 @@ export async function createTeacherAction(_prev: CreateTeacherState, formData: F
 
   const [created] = await db
     .insert(teachers)
-    .values({ name, email, school: school || null, passwordHash: await hashPassword(password), role })
+    .values({ name, email, school: school || null, passwordHash: await hashPassword(password), role, mustChangePassword: true })
     .returning({ id: teachers.id });
   await logAudit(admin, "teacher.create", { type: "teacher", id: created.id, label: email }, { role, name });
   revalidateAdmin();
@@ -244,4 +246,137 @@ export async function resetDemoDataAction(): Promise<void> {
   revalidateAdmin();
   revalidatePath("/quizzes");
   withMessage("/admin/settings", "ok", `Demo data was reset (${created} demo quizzes re-created).`);
+}
+
+
+// ---------------------------------------------------------------------------
+// Set a teacher's password directly
+// ---------------------------------------------------------------------------
+export interface SetPasswordState {
+  error?: string;
+  success?: string;
+  password?: string;
+}
+
+export async function setTeacherPasswordAction(_prev: SetPasswordState, formData: FormData): Promise<SetPasswordState> {
+  const admin = await requireAdmin();
+  const teacherId = String(formData.get("teacherId") ?? "");
+  if (teacherId === admin.id) return { error: "Use My Account to change your own password." };
+  const target = await loadTarget(teacherId);
+  if (!target) return { error: "Teacher not found." };
+  if (target.email === DEMO_EMAIL) return { error: "The shared demo account password cannot be changed." };
+  const provided = String(formData.get("newPassword") ?? "");
+  if (provided && (provided.length < 8 || provided.length > 200)) return { error: "Password must be at least 8 characters." };
+  const password = provided || generateTempPassword();
+  const force = formData.get("forceChange") === "on";
+
+  await db
+    .update(teachers)
+    .set({ passwordHash: await hashPassword(password), mustChangePassword: force, updatedAt: new Date() })
+    .where(eq(teachers.id, teacherId));
+  await db.delete(sessions).where(eq(sessions.teacherId, teacherId));
+  await logAudit(admin, "teacher.set_password", { type: "teacher", id: target.id, label: target.email }, { forceChange: force });
+  revalidateAdmin();
+  return {
+    success: `Password updated for ${target.name}. They were signed out of all devices${force ? " and will be asked to choose their own password at next login" : ""}.`,
+    password: provided ? undefined : password,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Bulk-create teachers
+// ---------------------------------------------------------------------------
+export interface BulkResultRow {
+  line: number;
+  name: string;
+  email: string;
+  password?: string;
+  status: "created" | "exists" | "invalid";
+  message?: string;
+}
+
+export interface BulkCreateState {
+  error?: string;
+  rows?: BulkResultRow[];
+}
+
+export async function bulkCreateTeachersAction(_prev: BulkCreateState, formData: FormData): Promise<BulkCreateState> {
+  const admin = await requireAdmin();
+  const lines = String(formData.get("lines") ?? "")
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+  if (lines.length === 0) return { error: "Enter at least one teacher (name, email, school)." };
+  if (lines.length > 50) return { error: "Please add at most 50 teachers per batch." };
+
+  const rows: BulkResultRow[] = [];
+  const seen = new Set<string>();
+  for (const [i, line] of lines.entries()) {
+    const [name = "", email = "", school = ""] = line.split(/[\t,;]/).map((p) => p.trim());
+    const parsedPassword = generateTempPassword();
+    const parsed = signupSchema.safeParse({ name, email, school, password: parsedPassword });
+    if (!parsed.success) {
+      rows.push({ line: i + 1, name, email, status: "invalid", message: parsed.error.issues[0]?.message ?? "Invalid line" });
+      continue;
+    }
+    const data = parsed.data;
+    if (seen.has(data.email)) {
+      rows.push({ line: i + 1, name: data.name, email: data.email, status: "invalid", message: "Duplicate email in this list" });
+      continue;
+    }
+    seen.add(data.email);
+    const existing = await db.select({ id: teachers.id }).from(teachers).where(eq(teachers.email, data.email)).limit(1);
+    if (existing.length) {
+      rows.push({ line: i + 1, name: data.name, email: data.email, status: "exists", message: "An account with this email already exists" });
+      continue;
+    }
+    const [created] = await db
+      .insert(teachers)
+      .values({ name: data.name, email: data.email, school: data.school || null, passwordHash: await hashPassword(data.password), role: "teacher", mustChangePassword: true })
+      .returning({ id: teachers.id });
+    await logAudit(admin, "teacher.create", { type: "teacher", id: created.id, label: data.email }, { role: "teacher", name: data.name, bulk: true });
+    rows.push({ line: i + 1, name: data.name, email: data.email, password: data.password, status: "created" });
+  }
+  revalidateAdmin();
+  return { rows };
+}
+
+// ---------------------------------------------------------------------------
+// Assign a quiz to teachers (each gets their own copy, link and private results)
+// ---------------------------------------------------------------------------
+export async function assignQuizAction(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+  const quizId = String(formData.get("quizId") ?? "");
+  const teacherIds = formData.getAll("teacherIds").map(String).filter(Boolean);
+  const lockContent = formData.get("lockContent") === "on";
+  const publishNow = formData.get("publishNow") === "on";
+  const back = `/admin/quizzes/${quizId}`;
+  if (teacherIds.length === 0) withMessage(back, "error", "Select at least one teacher.");
+
+  const result = await assignQuizToTeachers(quizId, teacherIds, { lockContent, publishNow }, admin.id);
+  if (!result.ok) withMessage(back, "error", result.errors.join(" "));
+  if (result.created.length === 0) {
+    const n = result.skipped.length;
+    withMessage(back, "error", `No new copies were created — ${n} selected ${n === 1 ? "teacher already has" : "teachers already have"} a copy of this quiz.`);
+  }
+
+  await logAudit(admin, "quiz.assign", { type: "quiz", id: quizId, label: result.title }, {
+    teachers: result.created.map((c) => c.teacherName),
+    skipped: result.skipped,
+    lockContent,
+    publishNow,
+  });
+  for (const c of result.created) {
+    await logActivity({ id: c.teacherId, name: c.teacherName }, "quiz.assigned", { quizId: c.quizId, label: result.title }, { assignedBy: admin.name, published: publishNow });
+  }
+  revalidateAdmin();
+  revalidatePath("/quizzes");
+  revalidatePath("/dashboard");
+  const created = result.created.length;
+  const skipped = result.skipped.length;
+  withMessage(
+    back,
+    "ok",
+    `"${result.title}" was assigned to ${created} ${created === 1 ? "teacher" : "teachers"}${publishNow ? " and published" : " as a draft"}.${skipped ? ` ${skipped} already had a copy and ${skipped === 1 ? "was" : "were"} skipped.` : ""}`,
+  );
 }

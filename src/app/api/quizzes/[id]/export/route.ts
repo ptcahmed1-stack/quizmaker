@@ -1,3 +1,4 @@
+import { logActivity } from "@/lib/activity";
 import { getCurrentTeacher } from "@/lib/auth";
 import { getQuizResults, getQuizResultsAdmin } from "@/lib/quizzes";
 import { csvEscape, formatDuration } from "@/lib/utils";
@@ -10,6 +11,8 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { id } = await params;
   const data = teacher.role === "admin" ? await getQuizResultsAdmin(id) : await getQuizResults(id, teacher.id);
   if (!data) return new Response("Not found", { status: 404 });
+
+  if (data.quiz.teacherId === teacher.id) await logActivity(teacher, "results.export", { quizId: data.quiz.id, label: data.quiz.title });
 
   const header = ["Student Name", "Student ID", "Attempt", "Score", "Total Marks", "Percentage", "Pass/Fail", "Time Taken", "Time Taken (seconds)", "Late", "Submission Date"];
   const lines = [header.join(",")];

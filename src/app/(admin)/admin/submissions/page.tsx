@@ -4,34 +4,49 @@ import { adminDeleteSubmissionAction } from "@/app/(admin)/actions";
 import { FlashMessages, Pagination } from "@/components/admin/widgets";
 import { ConfirmForm, SubmitButton } from "@/components/client-bits";
 import { Badge, Card, EmptyState, PageHeader, buttonClass, inputClass } from "@/components/ui";
+import { listTeacherOptions } from "@/lib/activity";
 import { listSubmissions, parsePage } from "@/lib/admin";
 import { requireAdmin } from "@/lib/auth";
 import { formatDateTime, formatDuration, formatPercent } from "@/lib/format";
 
-export const metadata: Metadata = { title: "Submissions · Admin" };
+export const metadata: Metadata = { title: "All results · Admin" };
 
 type Search = { q?: string; status?: string; teacherId?: string; quizId?: string; page?: string; ok?: string; error?: string };
 
 export default async function AdminSubmissionsPage({ searchParams }: { searchParams: Promise<Search> }) {
   await requireAdmin();
   const sp = await searchParams;
-  const result = await listSubmissions({ q: sp.q, status: sp.status, teacherId: sp.teacherId, quizId: sp.quizId, page: parsePage(sp.page) });
+  const [result, teachers] = await Promise.all([
+    listSubmissions({ q: sp.q, status: sp.status, teacherId: sp.teacherId, quizId: sp.quizId, page: parsePage(sp.page) }),
+    listTeacherOptions(),
+  ]);
   const params = { q: sp.q, status: sp.status, teacherId: sp.teacherId, quizId: sp.quizId };
   const active = Object.fromEntries(Object.entries(params).filter(([, v]) => v)) as Record<string, string>;
-  const here = `/admin/submissions${Object.keys(active).length ? `?${new URLSearchParams(active).toString()}` : ""}`;
+  const qs = new URLSearchParams(active).toString();
+  const here = `/admin/submissions${qs ? `?${qs}` : ""}`;
 
   return (
     <div>
-      <PageHeader title="Student submissions" description={`${result.total} ${result.total === 1 ? "record" : "records"} match your filters. Includes attempts still in progress.`} />
+      <PageHeader
+        title="All results"
+        description={`${result.total} ${result.total === 1 ? "record" : "records"} match your filters — every student result from every teacher. Includes attempts still in progress.`}
+        actions={<a href={`/api/admin/submissions/export${qs ? `?${qs}` : ""}`} download className={buttonClass("outline")}>Export CSV</a>}
+      />
       <FlashMessages ok={sp.ok} error={sp.error} />
 
       <Card className="mb-4 p-4">
-        <form method="get" className="grid gap-3 sm:grid-cols-[1fr_auto_auto]">
-          {sp.teacherId && <input type="hidden" name="teacherId" value={sp.teacherId} />}
+        <form method="get" className="grid gap-3 md:grid-cols-[1fr_auto_auto_auto]">
           {sp.quizId && <input type="hidden" name="quizId" value={sp.quizId} />}
           <div>
-            <label htmlFor="q" className="sr-only">Search submissions</label>
+            <label htmlFor="q" className="sr-only">Search results</label>
             <input id="q" name="q" defaultValue={sp.q ?? ""} placeholder="Search by student, ID, quiz or teacher…" className={inputClass} />
+          </div>
+          <div>
+            <label htmlFor="teacherId" className="sr-only">Teacher</label>
+            <select id="teacherId" name="teacherId" defaultValue={sp.teacherId ?? ""} className={inputClass}>
+              <option value="">All teachers</option>
+              {teachers.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+            </select>
           </div>
           <div>
             <label htmlFor="status" className="sr-only">Status</label>
@@ -43,13 +58,13 @@ export default async function AdminSubmissionsPage({ searchParams }: { searchPar
           </div>
           <div className="flex gap-2">
             <button type="submit" className={buttonClass("primary")}>Filter</button>
-            {(sp.q || sp.status || sp.teacherId || sp.quizId) && <Link href="/admin/submissions" className={buttonClass("ghost")}>Clear</Link>}
+            {Object.keys(active).length > 0 && <Link href="/admin/submissions" className={buttonClass("ghost")}>Clear</Link>}
           </div>
         </form>
       </Card>
 
       {result.items.length === 0 ? (
-        <EmptyState title="No submissions found" description="No student submissions match the current filters." />
+        <EmptyState title="No results found" description="No student submissions match the current filters." />
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
@@ -70,7 +85,7 @@ export default async function AdminSubmissionsPage({ searchParams }: { searchPar
                 {result.items.map((s) => (
                   <tr key={s.id} className="hover:bg-slate-50/60">
                     <td className="px-5 py-3">
-                      <p className="font-semibold text-slate-900">{s.studentName || <span className="italic text-slate-500">Anonymous</span>}</p>
+                      <Link href={`/admin/submissions/${s.id}`} className="font-semibold text-slate-900 hover:text-indigo-600">{s.studentName || <span className="italic text-slate-500">Anonymous</span>}</Link>
                       <p className="text-xs text-slate-500">{s.studentIdentifier ? `ID: ${s.studentIdentifier}` : ""}{s.attemptNumber > 1 ? ` · Attempt ${s.attemptNumber}` : ""}</p>
                     </td>
                     <td className="px-3 py-3"><Link href={`/admin/quizzes/${s.quizId}`} className="text-slate-800 hover:text-indigo-600">{s.quizTitle}</Link></td>
@@ -84,12 +99,15 @@ export default async function AdminSubmissionsPage({ searchParams }: { searchPar
                     </td>
                     <td className="px-3 py-3 text-slate-700">{formatDuration(s.timeTakenSeconds)}</td>
                     <td className="px-3 py-3 text-slate-500">{formatDateTime(s.submittedAt ?? s.startedAt)}</td>
-                    <td className="px-5 py-3 text-right">
-                      <ConfirmForm action={adminDeleteSubmissionAction} message={`Delete this ${s.status === "submitted" ? "submission" : "in-progress attempt"} from ${s.studentName || "an anonymous student"}?`}>
-                        <input type="hidden" name="submissionId" value={s.id} />
-                        <input type="hidden" name="redirectTo" value={here} />
-                        <SubmitButton variant="ghost" size="sm" className="text-rose-600 hover:bg-rose-50" pendingText="…">Delete</SubmitButton>
-                      </ConfirmForm>
+                    <td className="px-5 py-3">
+                      <div className="flex items-center justify-end gap-1">
+                        <Link href={`/admin/submissions/${s.id}`} className={buttonClass("ghost", "sm")}>View</Link>
+                        <ConfirmForm action={adminDeleteSubmissionAction} message={`Delete this ${s.status === "submitted" ? "submission" : "in-progress attempt"} from ${s.studentName || "an anonymous student"}?`}>
+                          <input type="hidden" name="submissionId" value={s.id} />
+                          <input type="hidden" name="redirectTo" value={here} />
+                          <SubmitButton variant="ghost" size="sm" className="text-rose-600 hover:bg-rose-50" pendingText="…">Delete</SubmitButton>
+                        </ConfirmForm>
+                      </div>
                     </td>
                   </tr>
                 ))}

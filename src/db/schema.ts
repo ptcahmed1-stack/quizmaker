@@ -1,5 +1,6 @@
 import { relations } from "drizzle-orm";
 import {
+  type AnyPgColumn,
   boolean,
   index,
   integer,
@@ -39,6 +40,7 @@ export const teachers = pgTable(
     school: text("school"),
     role: teacherRoleEnum("role").notNull().default("teacher"),
     status: teacherStatusEnum("status").notNull().default("active"),
+    mustChangePassword: boolean("must_change_password").notNull().default(false),
     isDemo: boolean("is_demo").notNull().default(false),
     lastLoginAt: timestamp("last_login_at", { withTimezone: true }),
     suspendedAt: timestamp("suspended_at", { withTimezone: true }),
@@ -73,6 +75,26 @@ export const auditLogs = pgTable(
     index("audit_logs_created_idx").on(t.createdAt),
     index("audit_logs_actor_idx").on(t.actorId),
     index("audit_logs_target_idx").on(t.targetId),
+  ],
+);
+
+/** Everything teachers do (and what their students do on their quizzes), visible to administrators. */
+export const activityLogs = pgTable(
+  "activity_logs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    teacherId: uuid("teacher_id").references(() => teachers.id, { onDelete: "set null" }),
+    teacherName: text("teacher_name").notNull().default(""),
+    action: text("action").notNull(),
+    quizId: uuid("quiz_id"),
+    targetLabel: text("target_label"),
+    details: jsonb("details").$type<Record<string, unknown> | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("activity_logs_created_idx").on(t.createdAt),
+    index("activity_logs_teacher_idx").on(t.teacherId, t.createdAt),
+    index("activity_logs_quiz_idx").on(t.quizId),
   ],
 );
 
@@ -140,12 +162,19 @@ export const quizzes = pgTable(
     timeLimitMinutes: integer("time_limit_minutes"),
     passingPercentage: integer("passing_percentage").notNull().default(50),
     isDemo: boolean("is_demo").notNull().default(false),
+    // Quizzes assigned by an administrator are copies of a "source" quiz. Each copy has its own
+    // public link and its own submissions, so a teacher only ever sees their own students' results.
+    sourceQuizId: uuid("source_quiz_id").references((): AnyPgColumn => quizzes.id, { onDelete: "set null" }),
+    assignedById: uuid("assigned_by_id").references(() => teachers.id, { onDelete: "set null" }),
+    assignedAt: timestamp("assigned_at", { withTimezone: true }),
+    lockedContent: boolean("locked_content").notNull().default(false),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index("quizzes_teacher_idx").on(t.teacherId),
+    index("quizzes_source_idx").on(t.sourceQuizId),
     uniqueIndex("quizzes_public_code_idx").on(t.publicCode),
   ],
 );
@@ -325,6 +354,7 @@ export type Option = typeof options.$inferSelect;
 export type Submission = typeof submissions.$inferSelect;
 export type StudentAnswer = typeof studentAnswers.$inferSelect;
 export type AuditLog = typeof auditLogs.$inferSelect;
+export type ActivityLog = typeof activityLogs.$inferSelect;
 export type PlatformSettings = typeof platformSettings.$inferSelect;
 export type QuizStatus = Quiz["status"];
 export type QuestionType = Question["type"];

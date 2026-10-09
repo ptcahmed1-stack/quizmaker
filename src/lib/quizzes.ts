@@ -8,6 +8,7 @@ import {
   quizzes,
   studentAnswers,
   submissions,
+  teachers,
   type Option,
   type Question,
   type Quiz,
@@ -17,6 +18,11 @@ import {
 import { correctAnswerText } from "@/lib/scoring";
 import { generatePublicCode, normalizeAnswer } from "@/lib/utils";
 import { validateForPublish, type QuizPayload } from "@/lib/validation";
+
+/** Assigned copies can have their questions locked by the administrator. */
+export function isQuizLocked(q: { lockedContent: boolean; sourceQuizId: string | null }): boolean {
+  return q.lockedContent && q.sourceQuizId !== null;
+}
 
 export type FullQuestion = Question & { options: Option[] };
 export type FullQuiz = Quiz & { settings: QuizSettings; questions: FullQuestion[] };
@@ -77,6 +83,8 @@ export interface QuizListItem extends Quiz {
   attempts: number;
   averagePercentage: number | null;
   lastSubmissionAt: Date | null;
+  assignedByName: string | null;
+  locked: boolean;
 }
 
 export async function listQuizzesForTeacher(teacherId: string): Promise<QuizListItem[]> {
@@ -109,6 +117,12 @@ export async function listQuizzesForTeacher(teacherId: string): Promise<QuizList
   const qMap = new Map(qStats.map((s) => [s.quizId, s]));
   const sMap = new Map(sStats.map((s) => [s.quizId, s]));
 
+  const assignerIds = [...new Set(rows.map((r) => r.assignedById).filter((v): v is string => Boolean(v)))];
+  const assigners = assignerIds.length
+    ? await db.select({ id: teachers.id, name: teachers.name }).from(teachers).where(inArray(teachers.id, assignerIds))
+    : [];
+  const assignerNames = new Map(assigners.map((a) => [a.id, a.name]));
+
   return rows.map((quiz) => {
     const q = qMap.get(quiz.id);
     const s = sMap.get(quiz.id);
@@ -119,6 +133,8 @@ export async function listQuizzesForTeacher(teacherId: string): Promise<QuizList
       attempts: s?.attempts ?? 0,
       averagePercentage: s?.avgPct !== null && s?.avgPct !== undefined ? Number(s.avgPct) : null,
       lastSubmissionAt: s?.last ?? null,
+      assignedByName: quiz.sourceQuizId ? (quiz.assignedById ? (assignerNames.get(quiz.assignedById) ?? "your administrator") : "your administrator") : null,
+      locked: isQuizLocked(quiz),
     };
   });
 }
@@ -325,6 +341,20 @@ export interface SubmissionDetailAnswer {
 export async function getSubmissionDetail(quizId: string, submissionId: string, teacherId: string) {
   const quiz = await getQuizForTeacher(quizId, teacherId);
   if (!quiz) return null;
+  return buildSubmissionDetail(quiz, submissionId);
+}
+
+/** Admin variant: any submission on the platform. */
+export async function getSubmissionDetailAdmin(submissionId: string) {
+  const [row] = await db.select({ quizId: submissions.quizId }).from(submissions).where(eq(submissions.id, submissionId)).limit(1);
+  if (!row) return null;
+  const quiz = await getQuizForAdmin(row.quizId);
+  if (!quiz) return null;
+  return buildSubmissionDetail(quiz, submissionId);
+}
+
+async function buildSubmissionDetail(quiz: FullQuiz, submissionId: string) {
+  const quizId = quiz.id;
   const submission = await db.query.submissions.findFirst({
     where: and(eq(submissions.id, submissionId), eq(submissions.quizId, quizId)),
     with: { answers: true },
@@ -383,11 +413,13 @@ function parseDate(value: string | null): Date | null {
 
 export async function saveQuizPayload(quizId: string, teacherId: string, payload: QuizPayload) {
   const owned = await db
-    .select({ id: quizzes.id })
+    .select({ id: quizzes.id, lockedContent: quizzes.lockedContent, sourceQuizId: quizzes.sourceQuizId })
     .from(quizzes)
     .where(and(eq(quizzes.id, quizId), eq(quizzes.teacherId, teacherId)))
     .limit(1);
   if (owned.length === 0) throw new Error("Quiz not found");
+  // Locked (assigned) quizzes keep the administrator's questions and pass mark.
+  const locked = isQuizLocked(owned[0]);
 
   const questionIds = payload.questions.map((q) => q.id);
   const optionIds = payload.questions.flatMap((q) => q.options.map((o) => o.id));
@@ -420,7 +452,7 @@ export async function saveQuizPayload(quizId: string, teacherId: string, payload
         gradeLevel: payload.gradeLevel,
         instructions: payload.instructions,
         timeLimitMinutes: payload.timeLimitMinutes && payload.timeLimitMinutes > 0 ? payload.timeLimitMinutes : null,
-        passingPercentage: payload.passingPercentage,
+        ...(locked ? {} : { passingPercentage: payload.passingPercentage }),
         updatedAt: now,
       })
       .where(eq(quizzes.id, quizId));
@@ -449,6 +481,7 @@ export async function saveQuizPayload(quizId: string, teacherId: string, payload
       .values({ quizId, ...settingsRow })
       .onConflictDoUpdate({ target: quizSettings.quizId, set: settingsRow });
 
+    if (!locked) {
     const existing = await tx.select({ id: questions.id }).from(questions).where(eq(questions.quizId, quizId));
     const keep = new Set(questionIds);
     const toDelete = existing.filter((e) => !keep.has(e.id)).map((e) => e.id);
@@ -479,6 +512,7 @@ export async function saveQuizPayload(quizId: string, teacherId: string, payload
           .values({ id: o.id, questionId: q.id, ...oRow })
           .onConflictDoUpdate({ target: options.id, set: oRow });
       }
+    }
     }
   });
   return { updatedAt: now };
@@ -617,4 +651,15 @@ export function toEditorPayload(quiz: FullQuiz): QuizPayload {
       options: q.options.map((o) => ({ id: o.id, text: o.text, isCorrect: o.isCorrect })),
     })),
   };
+}
+
+
+/** Generates a public quiz code that is not used by any other quiz. */
+export async function uniquePublicCode(): Promise<string | null> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const candidate = generatePublicCode(8);
+    const clash = await db.select({ id: quizzes.id }).from(quizzes).where(eq(quizzes.publicCode, candidate)).limit(1);
+    if (clash.length === 0) return candidate;
+  }
+  return null;
 }

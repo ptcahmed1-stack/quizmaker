@@ -362,6 +362,7 @@ export async function getTeacherById(id: string): Promise<Omit<Teacher, "passwor
       school: teachers.school,
       role: teachers.role,
       status: teachers.status,
+      mustChangePassword: teachers.mustChangePassword,
       isDemo: teachers.isDemo,
       lastLoginAt: teachers.lastLoginAt,
       suspendedAt: teachers.suspendedAt,

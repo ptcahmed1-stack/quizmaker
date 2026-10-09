@@ -22,6 +22,9 @@ interface Props {
   initialPublishErrors: string[];
   originFallback: string;
   notice?: string;
+  /** Assigned quiz whose questions and pass mark are locked by the administrator. */
+  locked?: boolean;
+  assignedByName?: string | null;
 }
 
 function uuid(): string {
@@ -44,7 +47,7 @@ function newQuestion(type: QType): EditorQuestion {
   return { ...base, options: [] };
 }
 
-export function QuizEditor({ quizId, status, publicCode, initial, submissionCount, initialPublishErrors, originFallback, notice }: Props) {
+export function QuizEditor({ quizId, status, publicCode, initial, submissionCount, initialPublishErrors, originFallback, notice, locked = false, assignedByName = null }: Props) {
   const router = useRouter();
   const origin = useOrigin(originFallback);
   const [data, setData] = useState<QuizPayload>(initial);
@@ -239,6 +242,15 @@ export function QuizEditor({ quizId, status, publicCode, initial, submissionCoun
       </div>
 
       {notice && <div className="mb-4"><Alert tone="success">{notice}</Alert></div>}
+      {assignedByName && (
+        <div className="mb-4">
+          <Alert tone="info" title={`Assigned by ${assignedByName}`}>
+            {locked
+              ? "The questions and pass mark of this quiz are locked so every class sits the same paper. You can still adjust timing, access and result settings, then publish it and share the link with your students. Only you can see your own students' results."
+              : "Publish this quiz and share the link with your students. Only you can see your own students' results."}
+          </Alert>
+        </div>
+      )}
       {saveError && <div className="mb-4"><Alert tone="error" title="Save problem">{saveError}</Alert></div>}
       {publishErrors.length > 0 && (
         <div className="mb-4">
@@ -316,6 +328,7 @@ export function QuizEditor({ quizId, status, publicCode, initial, submissionCoun
                 inputMode="numeric"
                 value={data.passingPercentage}
                 onChange={(e) => patch({ passingPercentage: Math.max(0, Math.min(100, Number(e.target.value) || 0)) })}
+                disabled={locked}
               />
             </Field>
           </div>
@@ -324,7 +337,7 @@ export function QuizEditor({ quizId, status, publicCode, initial, submissionCoun
 
       {/* Questions */}
       {tab === "questions" && (
-        <div className="space-y-4">
+        <fieldset disabled={locked} className="m-0 min-w-0 space-y-4 border-0 p-0">
           {data.questions.length === 0 && (
             <Card className="p-8 text-center">
               <h2 className="text-lg font-semibold text-slate-900">No questions yet</h2>
@@ -374,7 +387,7 @@ export function QuizEditor({ quizId, status, publicCode, initial, submissionCoun
               <Button variant="secondary" onClick={() => addQuestion("short_answer")}>+ Short Answer</Button>
             </div>
           </Card>
-        </div>
+        </fieldset>
       )}
 
       {/* Settings */}
@@ -450,7 +463,7 @@ export function QuizEditor({ quizId, status, publicCode, initial, submissionCoun
             <span className="hidden sm:inline"> · {saveLabel}</span>
           </p>
           <div className="flex items-center gap-2">
-            {tab === "questions" && (
+            {tab === "questions" && !locked && (
               <Button variant="secondary" size="sm" onClick={() => addQuestion("multiple_choice")}>+ Add question</Button>
             )}
             {status === "published" ? (

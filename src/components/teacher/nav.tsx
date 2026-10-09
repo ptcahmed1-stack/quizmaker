@@ -16,6 +16,8 @@ interface AppNavProps {
   /** Extra links rendered above the profile block (e.g. “Admin panel”). */
   footerLinks?: NavItem[];
   accent?: "indigo" | "slate";
+  /** Where the profile block in the sidebar links to (profile & password page). */
+  accountHref?: string;
 }
 
 function activeHref(pathname: string, items: NavItem[]): string | null {
@@ -73,7 +75,7 @@ function LogoutButton() {
   );
 }
 
-export function AppNav({ user, items, brandHref, brandBadge, footerLinks = [], accent = "indigo" }: AppNavProps) {
+export function AppNav({ user, items, brandHref, brandBadge, footerLinks = [], accent = "indigo", accountHref }: AppNavProps) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -99,15 +101,32 @@ export function AppNav({ user, items, brandHref, brandBadge, footerLinks = [], a
           {l.label}
         </Link>
       ))}
-      <div className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
-        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700" aria-hidden>
-          {user.name.charAt(0).toUpperCase()}
-        </span>
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-semibold text-slate-900">{user.name}</span>
-          <span className="block truncate text-xs text-slate-500">{user.subtitle ?? user.email}</span>
-        </span>
-      </div>
+      {accountHref ? (
+        <Link
+          href={accountHref}
+          onClick={onNavigate}
+          className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5 hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+        >
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700" aria-hidden>
+            {user.name.charAt(0).toUpperCase()}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-slate-900">{user.name}</span>
+            <span className="block truncate text-xs text-slate-500">{user.subtitle ?? user.email}</span>
+            <span className="block text-xs font-semibold text-indigo-700">Account &amp; password →</span>
+          </span>
+        </Link>
+      ) : (
+        <div className="flex items-center gap-3 rounded-xl bg-slate-50 px-3 py-2.5">
+          <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-indigo-100 text-sm font-bold text-indigo-700" aria-hidden>
+            {user.name.charAt(0).toUpperCase()}
+          </span>
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-slate-900">{user.name}</span>
+            <span className="block truncate text-xs text-slate-500">{user.subtitle ?? user.email}</span>
+          </span>
+        </div>
+      )}
       <LogoutButton />
     </div>
   );

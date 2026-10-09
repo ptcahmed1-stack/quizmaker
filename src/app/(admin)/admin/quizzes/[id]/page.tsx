@@ -3,16 +3,18 @@ import { headers } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { adminDeleteQuizAction, adminDeleteSubmissionAction, adminSetQuizStatusAction } from "@/app/(admin)/actions";
-import { FlashMessages, MiniStat, SectionCard } from "@/components/admin/widgets";
+import { AssignQuizForm } from "@/components/admin/forms";
+import { AccountStatusBadge, FlashMessages, MiniStat, SectionCard } from "@/components/admin/widgets";
 import { ConfirmForm, CopyButton, SubmitButton } from "@/components/client-bits";
 import { Badge, Card, LinkButton, PageHeader, StatusBadge, buttonClass } from "@/components/ui";
+import { listAssignableTeachers, listCopies } from "@/lib/assignments";
 import { requireAdmin } from "@/lib/auth";
 import { cn, formatDateTime, formatDuration, formatPercent, questionTypeLabel } from "@/lib/format";
 import { getQuizResultsAdmin } from "@/lib/quizzes";
 import { correctAnswerText } from "@/lib/scoring";
 import { baseUrlFromHeaders } from "@/lib/utils";
 import { db } from "@/db";
-import { teachers } from "@/db/schema";
+import { quizzes, teachers } from "@/db/schema";
 import { eq } from "drizzle-orm";
 
 export const metadata: Metadata = { title: "Quiz · Admin" };
@@ -30,6 +32,15 @@ export default async function AdminQuizDetailPage({
   if (!data) notFound();
   const { quiz, submissions, stats, analytics } = data;
   const [owner] = await db.select({ id: teachers.id, name: teachers.name, email: teachers.email, status: teachers.status }).from(teachers).where(eq(teachers.id, quiz.teacherId)).limit(1);
+  const [copies, assignable, sourceRows] = await Promise.all([
+    listCopies(quiz.id),
+    listAssignableTeachers(quiz.teacherId),
+    quiz.sourceQuizId ? db.select({ id: quizzes.id, title: quizzes.title }).from(quizzes).where(eq(quizzes.id, quiz.sourceQuizId)).limit(1) : Promise.resolve([]),
+  ]);
+  const sourceQuiz = sourceRows[0] ?? null;
+  const assignedIds = new Set(copies.map((c) => c.teacherId));
+  const copyAttempts = copies.reduce((sum, c) => sum + c.attempts, 0);
+  const copyAverage = copyAttempts > 0 ? copies.reduce((sum, c) => sum + (c.averagePercentage ?? 0) * c.attempts, 0) / copyAttempts : null;
   const studentUrl = quiz.publicCode ? `${baseUrlFromHeaders(hdrs)}/quiz/${quiz.publicCode}` : null;
   const here = `/admin/quizzes/${quiz.id}`;
   const s = quiz.settings;
@@ -116,6 +127,71 @@ export default async function AdminQuizDetailPage({
         </div>
       </div>
 
+      {sourceQuiz && (
+        <Card className="mt-6 border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+          <p>
+            <span className="font-semibold">Assigned copy.</span> This quiz was assigned to {owner?.name ?? "this teacher"} from{" "}
+            <Link href={`/admin/quizzes/${sourceQuiz.id}`} className="font-semibold underline">{sourceQuiz.title}</Link>
+            {quiz.lockedContent ? " with locked questions" : ""}. Its student link and results belong to this teacher only.
+          </p>
+        </Card>
+      )}
+
+      <div id="assign" className="mt-6 grid scroll-mt-6 gap-6 xl:grid-cols-3">
+        <SectionCard title="Assign to teachers" description="Give teachers their own copy to send to their students.">
+          <div className="p-5">
+            {quiz.questions.length === 0 ? (
+              <p className="text-sm text-slate-600">Add at least one question before assigning this quiz.</p>
+            ) : (
+              <AssignQuizForm
+                quizId={quiz.id}
+                teachers={assignable.map((t) => ({ ...t, assigned: assignedIds.has(t.id) }))}
+              />
+            )}
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Teacher copies & results"
+          description={copies.length ? `${copies.length} ${copies.length === 1 ? "teacher has" : "teachers have"} a copy · ${copyAttempts} student attempts · average ${formatPercent(copyAverage)}` : "Not assigned to anyone yet."}
+          className="xl:col-span-2"
+        >
+          {copies.length === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-slate-500">Select teachers on the left. Each one gets a private copy with its own student link, and their students&apos; results appear here for you.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[640px] text-left text-sm">
+                <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  <tr>
+                    <th scope="col" className="px-5 py-3">Teacher</th>
+                    <th scope="col" className="px-3 py-3">Status</th>
+                    <th scope="col" className="px-3 py-3">Attempts</th>
+                    <th scope="col" className="px-3 py-3">Average</th>
+                    <th scope="col" className="px-3 py-3">Pass rate</th>
+                    <th scope="col" className="px-5 py-3 text-right">Results</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {copies.map((c) => (
+                    <tr key={c.id} className="hover:bg-slate-50/60">
+                      <td className="px-5 py-3">
+                        <Link href={`/admin/teachers/${c.teacherId}`} className="font-semibold text-slate-900 hover:text-indigo-600">{c.teacherName}</Link>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500">{c.teacherEmail}{c.teacherStatus === "suspended" && <AccountStatusBadge status="suspended" />}</div>
+                      </td>
+                      <td className="px-3 py-3"><StatusBadge status={c.status} />{c.publicCode && c.status === "published" && <div className="mt-0.5 font-mono text-xs text-slate-500">{c.publicCode}</div>}</td>
+                      <td className="px-3 py-3 font-medium text-slate-900">{c.attempts}</td>
+                      <td className="px-3 py-3 text-slate-700">{formatPercent(c.averagePercentage)}</td>
+                      <td className="px-3 py-3 text-slate-700">{formatPercent(c.passRate)}</td>
+                      <td className="px-5 py-3 text-right"><LinkButton href={`/admin/quizzes/${c.id}`} variant="outline" size="sm">View</LinkButton></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
       <div className="mt-6 grid gap-6 xl:grid-cols-3">
         <SectionCard title="Submissions" description={`${submissions.length} submitted ${submissions.length === 1 ? "attempt" : "attempts"}.`} className="xl:col-span-2">
           {submissions.length === 0 ? (
@@ -137,7 +213,7 @@ export default async function AdminQuizDetailPage({
                   {submissions.map((sub) => (
                     <tr key={sub.id} className="hover:bg-slate-50/60">
                       <td className="px-5 py-3">
-                        <p className="font-semibold text-slate-900">{sub.studentName || <span className="italic text-slate-500">Anonymous</span>}</p>
+                        <Link href={`/admin/submissions/${sub.id}`} className="font-semibold text-slate-900 hover:text-indigo-600">{sub.studentName || <span className="italic text-slate-500">Anonymous</span>}</Link>
                         <p className="text-xs text-slate-500">{sub.studentIdentifier ? `ID: ${sub.studentIdentifier}` : ""}{sub.attemptNumber > 1 ? ` · Attempt ${sub.attemptNumber}` : ""}</p>
                       </td>
                       <td className="px-3 py-3 font-medium text-slate-900">{sub.score}/{sub.totalMarks} <span className="text-slate-500">({formatPercent(sub.percentage)})</span></td>

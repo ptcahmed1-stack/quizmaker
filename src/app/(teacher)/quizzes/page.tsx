@@ -89,6 +89,7 @@ export default async function QuizzesPage({ searchParams }: { searchParams: Prom
                       <span>{quiz.subject || "No subject"}</span>
                       {quiz.gradeLevel && <span>· {quiz.gradeLevel}</span>}
                       {quiz.isDemo && <Badge tone="indigo">Demo</Badge>}
+                      {quiz.assignedByName && <Badge tone="blue">Assigned by {quiz.assignedByName}{quiz.locked ? " · locked" : ""}</Badge>}
                     </div>
                   </td>
                   <td className="px-3 py-3.5 text-slate-700">{quiz.questionCount}</td>
@@ -122,6 +123,7 @@ export default async function QuizzesPage({ searchParams }: { searchParams: Prom
                     <div className="mt-2 flex items-center gap-2">
                       <StatusBadge status={quiz.status} />
                       {quiz.isDemo && <Badge tone="indigo">Demo</Badge>}
+                      {quiz.assignedByName && <Badge tone="blue">Assigned by {quiz.assignedByName}{quiz.locked ? " · locked" : ""}</Badge>}
                       <span className="text-xs text-slate-400">{formatDate(quiz.createdAt)}</span>
                     </div>
                   </div>

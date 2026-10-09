@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { icons, teacherNavItems } from "@/components/nav-items";
+import { PasswordBanner } from "@/components/password-banner";
 import { AppNav } from "@/components/teacher/nav";
 import { getPlatformSettings } from "@/lib/admin";
 import { requireTeacher } from "@/lib/auth";
@@ -17,10 +18,12 @@ export default async function TeacherLayout({ children }: { children: ReactNode 
         user={{ name: teacher.name, email: teacher.email, subtitle: teacher.isDemo ? "Demo account" : isAdmin ? "Administrator" : teacher.email }}
         items={teacherNavItems}
         brandHref="/dashboard"
+        accountHref="/settings"
         footerLinks={isAdmin ? [{ href: "/admin", label: "Admin panel", icon: icons.shield }] : []}
       />
       <main className="px-4 py-6 sm:px-6 lg:ml-64 lg:px-10 lg:py-8">
         <div className="mx-auto max-w-6xl">
+          {teacher.mustChangePassword && <PasswordBanner href="/settings" />}
           {settings.announcementEnabled && settings.announcement && (
             <div role="status" className="mb-6 flex gap-3 rounded-xl border border-indigo-200 bg-indigo-50 p-4 text-sm text-indigo-900">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="mt-0.5 shrink-0" aria-hidden><path d="M3 11l18-5v12L3 13v-2zM11.6 16.8a3 3 0 1 1-5.8-1.6" /></svg>

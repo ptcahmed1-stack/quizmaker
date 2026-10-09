@@ -10,6 +10,7 @@ import {
   type Quiz,
   type QuizSettings,
 } from "@/db/schema";
+import { logActivity } from "@/lib/activity";
 import { getPlatformSettings } from "@/lib/admin";
 import { defaultSettings } from "@/lib/quizzes";
 import { scoreQuiz, type ScorableQuestion, type ScoreSummary } from "@/lib/scoring";
@@ -287,6 +288,7 @@ export async function submitAttempt(
 
   const summary = scoreQuiz(scorable, answers, quiz.passingPercentage);
 
+  let recorded = true;
   await db.transaction(async (tx) => {
     // Re-check inside the transaction to prevent double submission races.
     const [fresh] = await tx
@@ -317,9 +319,27 @@ export async function submitAttempt(
       );
     }
   }).catch(async (err: unknown) => {
-    if (err instanceof Error && err.message === "ALREADY_SUBMITTED") return;
+    if (err instanceof Error && err.message === "ALREADY_SUBMITTED") {
+      recorded = false;
+      return;
+    }
     throw err;
   });
+
+  if (recorded) {
+    await logActivity(
+      { id: quiz.teacherId, name: quiz.teacher?.name ?? "" },
+      "student.submitted",
+      { quizId: quiz.id, label: quiz.title },
+      {
+        student: submission.studentName || "Anonymous",
+        studentId: submission.studentIdentifier || undefined,
+        score: `${summary.score}/${summary.totalMarks}`,
+        percentage: summary.percentage,
+        passed: summary.passed,
+      },
+    );
+  }
 
   return { ok: true, data: buildResult(quiz, summary, submission.id, now, timeTakenSeconds, isLate) };
 }

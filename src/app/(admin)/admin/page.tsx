@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { headers } from "next/headers";
 import Link from "next/link";
 import { ActionLabel, BarChart, MiniStat, SectionCard } from "@/components/admin/widgets";
-import { Alert, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
+import { listActivity } from "@/lib/activity";
+import { activityMeta, describeActivity } from "@/lib/activity-labels";
+import { Alert, Badge, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
 import {
   getDailyActivity,
   getMostActiveTeachers,
@@ -21,13 +23,14 @@ export const metadata: Metadata = { title: "Admin overview" };
 
 export default async function AdminOverviewPage() {
   const admin = await requireAdmin();
-  const [stats, daily, topQuizzes, activeTeachers, recentTeachers, recentAudit, settings, defaultPassword, hdrs] = await Promise.all([
+  const [stats, daily, topQuizzes, activeTeachers, recentTeachers, recentAudit, recentActivity, settings, defaultPassword, hdrs] = await Promise.all([
     getPlatformStats(),
     getDailyActivity(14),
     getTopQuizzes(5),
     getMostActiveTeachers(5),
     listTeachers({ page: 1 }),
     listAuditLogs({ page: 1 }),
+    listActivity({ page: 1 }),
     getPlatformSettings(),
     isDefaultAdminPasswordInUse(),
     headers(),
@@ -43,6 +46,7 @@ export default async function AdminOverviewPage() {
         actions={
           <>
             <LinkButton href="/admin/teachers/new" variant="outline">+ Add teacher</LinkButton>
+            <LinkButton href="/quizzes/new" variant="outline">+ Create quiz</LinkButton>
             <LinkButton href="/admin/settings">Platform settings</LinkButton>
           </>
         }
@@ -118,6 +122,32 @@ export default async function AdminOverviewPage() {
                   </div>
                 </li>
               ))}
+            </ul>
+          )}
+        </SectionCard>
+
+        <SectionCard title="Live teacher activity" description="Logins, quiz changes and student submissions as they happen." className="lg:col-span-2" action={<Link href="/admin/activity" className="text-sm font-medium text-indigo-600 hover:underline">See all activity</Link>}>
+          {recentActivity.items.length === 0 ? (
+            <p className="px-5 py-8 text-center text-sm text-slate-500">No teacher activity yet.</p>
+          ) : (
+            <ul className="divide-y divide-slate-100">
+              {recentActivity.items.slice(0, 8).map((a) => {
+                const meta = activityMeta(a.action);
+                const detail = describeActivity(a.action, a.details);
+                return (
+                  <li key={a.id} className="flex flex-col gap-1 px-5 py-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        {a.teacherId ? <Link href={`/admin/teachers/${a.teacherId}`} className="text-sm font-semibold text-slate-900 hover:text-indigo-600">{a.teacherName}</Link> : <span className="text-sm font-semibold text-slate-900">{a.teacherName}</span>}
+                        <Badge tone={meta.tone}>{meta.label}</Badge>
+                        {a.targetLabel && <span className="truncate text-sm text-slate-600">{a.targetLabel}</span>}
+                      </div>
+                      {detail && <p className="mt-0.5 text-xs text-slate-500">{detail}</p>}
+                    </div>
+                    <p className="shrink-0 text-xs text-slate-500">{formatDateTime(a.createdAt)}</p>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </SectionCard>

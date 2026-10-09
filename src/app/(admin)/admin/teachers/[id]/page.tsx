@@ -2,10 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { deleteTeacherAction, setTeacherRoleAction, setTeacherStatusAction } from "@/app/(admin)/actions";
-import { ResetLinkForm, SuspendForm } from "@/components/admin/forms";
+import { ResetLinkForm, SetPasswordForm, SuspendForm } from "@/components/admin/forms";
 import { AccountStatusBadge, ActionLabel, FlashMessages, MiniStat, RoleBadge, SectionCard } from "@/components/admin/widgets";
 import { ConfirmForm, SubmitButton } from "@/components/client-bits";
 import { Badge, Card, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
+import { listActivity } from "@/lib/activity";
+import { activityMeta, describeActivity } from "@/lib/activity-labels";
 import { getTeacherById, listAuditLogs, listSubmissions } from "@/lib/admin";
 import { requireAdmin } from "@/lib/auth";
 import { formatDateTime, formatPercent } from "@/lib/format";
@@ -24,10 +26,11 @@ export default async function AdminTeacherDetailPage({
   const [{ id }, sp] = await Promise.all([params, searchParams]);
   const teacher = await getTeacherById(id);
   if (!teacher) notFound();
-  const [quizzes, submissions, audit] = await Promise.all([
+  const [quizzes, submissions, audit, activity] = await Promise.all([
     listQuizzesForTeacher(id),
     listSubmissions({ teacherId: id, status: "submitted", page: 1 }),
     listAuditLogs({ targetId: id, page: 1 }),
+    listActivity({ teacherId: id, page: 1 }),
   ]);
   const isSelf = teacher.id === admin.id;
   const totalAttempts = quizzes.reduce((s, q) => s + q.attempts, 0);
@@ -115,7 +118,7 @@ export default async function AdminTeacherDetailPage({
                 {submissions.items.slice(0, 8).map((s) => (
                   <li key={s.id} className="flex items-center justify-between gap-3 px-5 py-3 text-sm">
                     <div className="min-w-0">
-                      <p className="truncate font-semibold text-slate-900">{s.studentName || "Anonymous"}{s.studentIdentifier ? ` (${s.studentIdentifier})` : ""}</p>
+                      <Link href={`/admin/submissions/${s.id}`} className="block truncate font-semibold text-slate-900 hover:text-indigo-600">{s.studentName || "Anonymous"}{s.studentIdentifier ? ` (${s.studentIdentifier})` : ""}</Link>
                       <p className="truncate text-xs text-slate-500">{s.quizTitle}</p>
                     </div>
                     <div className="shrink-0 text-right">
@@ -124,6 +127,31 @@ export default async function AdminTeacherDetailPage({
                     </div>
                   </li>
                 ))}
+              </ul>
+            )}
+          </SectionCard>
+
+          <SectionCard title="Teacher activity" description="What this teacher has been doing." action={<Link href={`/admin/activity?teacherId=${teacher.id}`} className="text-sm font-medium text-indigo-600 hover:underline">View all</Link>}>
+            {activity.items.length === 0 ? (
+              <p className="px-5 py-8 text-center text-sm text-slate-500">No activity recorded yet.</p>
+            ) : (
+              <ul className="divide-y divide-slate-100">
+                {activity.items.slice(0, 12).map((a) => {
+                  const meta = activityMeta(a.action);
+                  const detail = describeActivity(a.action, a.details);
+                  return (
+                    <li key={a.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge tone={meta.tone}>{meta.label}</Badge>
+                          {a.targetLabel && (a.quizId && a.quizExists ? <Link href={`/admin/quizzes/${a.quizId}`} className="truncate text-sm text-slate-800 hover:text-indigo-600">{a.targetLabel}</Link> : <span className="truncate text-sm text-slate-700">{a.targetLabel}</span>)}
+                        </div>
+                        {detail && <p className="mt-0.5 text-xs text-slate-500">{detail}</p>}
+                      </div>
+                      <p className="shrink-0 text-xs text-slate-500">{formatDateTime(a.createdAt)}</p>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </SectionCard>
@@ -179,7 +207,18 @@ export default async function AdminTeacherDetailPage({
               )}
               <div className="border-t border-slate-100 pt-5">
                 <h3 className="text-sm font-semibold text-slate-900">Password</h3>
-                <div className="mt-2"><ResetLinkForm teacherId={teacher.id} teacherName={teacher.name} /></div>
+                <div className="mt-2 space-y-5">
+                  {!isSelf && !teacher.isDemo && (
+                    <div>
+                      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Set a new password</p>
+                      <SetPasswordForm teacherId={teacher.id} />
+                    </div>
+                  )}
+                  <div className="border-t border-slate-100 pt-4">
+                    <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Or send a reset link</p>
+                    <ResetLinkForm teacherId={teacher.id} teacherName={teacher.name} />
+                  </div>
+                </div>
               </div>
               {!isSelf && (
                 <div className="border-t border-slate-100 pt-5">

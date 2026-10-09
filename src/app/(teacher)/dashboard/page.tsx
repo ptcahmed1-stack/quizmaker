@@ -4,7 +4,7 @@ import Link from "next/link";
 import { loadDemoQuizzesAction, publishFromFormAction } from "@/app/(teacher)/actions";
 import { SubmitButton } from "@/components/client-bits";
 import { QuizActionsMenu } from "@/components/teacher/quiz-actions";
-import { Card, EmptyState, LinkButton, StatCard, StatusBadge } from "@/components/ui";
+import { Alert, Card, EmptyState, LinkButton, StatCard, StatusBadge } from "@/components/ui";
 import { requireTeacher } from "@/lib/auth";
 import { formatPercent } from "@/lib/format";
 import { getDashboardStats, listQuizzesForTeacher } from "@/lib/quizzes";
@@ -22,6 +22,7 @@ export default async function DashboardPage() {
   const origin = baseUrlFromHeaders(hdrs);
   const recent = quizzes.slice(0, 5);
   const firstName = teacher.name.split(" ")[0];
+  const assignedPending = quizzes.filter((q) => q.assignedByName && q.status === "draft");
 
   return (
     <div>
@@ -35,6 +36,20 @@ export default async function DashboardPage() {
           Create New Quiz
         </LinkButton>
       </div>
+
+      {assignedPending.length > 0 && (
+        <div className="mb-6">
+          <Alert tone="info" title={`${assignedPending.length} assigned ${assignedPending.length === 1 ? "quiz is" : "quizzes are"} waiting for you`}>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              {assignedPending.slice(0, 5).map((q) => (
+                <li key={q.id}>
+                  <Link href={`/quizzes/${q.id}/edit`} className="font-semibold underline">{q.title}</Link> — assigned by {q.assignedByName}. Publish it to get a link for your students.
+                </li>
+              ))}
+            </ul>
+          </Alert>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-5">
         <StatCard label="Total quizzes" value={stats.totalQuizzes} />
@@ -76,6 +91,7 @@ export default async function DashboardPage() {
                     </Link>
                     <p className="mt-0.5 text-sm text-slate-500">
                       {quiz.subject || "No subject"} · {quiz.questionCount} {quiz.questionCount === 1 ? "question" : "questions"}
+                      {quiz.assignedByName && <span className="ml-1 font-medium text-sky-700">· Assigned by {quiz.assignedByName}</span>}
                     </p>
                   </div>
                   <StatusBadge status={quiz.status} />
