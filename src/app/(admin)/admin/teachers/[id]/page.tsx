@@ -5,7 +5,7 @@ import { deleteTeacherAction, setTeacherRoleAction, setTeacherStatusAction } fro
 import { ResetLinkForm, SetPasswordForm, SuspendForm } from "@/components/admin/forms";
 import { AccountStatusBadge, ActionLabel, FlashMessages, MiniStat, RoleBadge, SectionCard } from "@/components/admin/widgets";
 import { ConfirmForm, SubmitButton } from "@/components/client-bits";
-import { Badge, Card, LinkButton, PageHeader, StatusBadge } from "@/components/ui";
+import { Badge, Card, LinkButton, PageHeader, StatusBadge, buttonClass } from "@/components/ui";
 import { listActivity } from "@/lib/activity";
 import { activityMeta, describeActivity } from "@/lib/activity-labels";
 import { getTeacherById, listAuditLogs, listSubmissions } from "@/lib/admin";
@@ -54,7 +54,13 @@ export default async function AdminTeacherDetailPage({
             {teacher.school ? ` · ${teacher.school}` : ""} · Joined {formatDateTime(teacher.createdAt)} · Last login {teacher.lastLoginAt ? formatDateTime(teacher.lastLoginAt) : "never"}
           </span>
         }
-        actions={<LinkButton href={`/admin/quizzes?teacherId=${teacher.id}`} variant="outline">All quizzes</LinkButton>}
+        actions={
+          <>
+            <LinkButton href={`/admin/quizzes?teacherId=${teacher.id}`} variant="outline">All quizzes</LinkButton>
+            <LinkButton href={`/admin/activity?teacherId=${teacher.id}`} variant="outline">Activity</LinkButton>
+            <a href={`/api/admin/submissions/export?teacherId=${teacher.id}`} download className={buttonClass("secondary")}>Export all results (CSV)</a>
+          </>
+        }
       />
       <FlashMessages ok={sp.ok} error={sp.error} />
 

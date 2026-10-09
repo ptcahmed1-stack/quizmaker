@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { LinkButton, Logo, buttonClass } from "@/components/ui";
+import { getPlatformSettings } from "@/lib/admin";
 import { getCurrentTeacher } from "@/lib/auth";
 
 export const dynamic = "force-dynamic";
@@ -20,7 +21,8 @@ const features = [
 ];
 
 export default async function HomePage() {
-  const teacher = await getCurrentTeacher();
+  const [teacher, platform] = await Promise.all([getCurrentTeacher(), getPlatformSettings()]);
+  const signupsOpen = platform.allowSignups;
 
   return (
     <main className="min-h-screen bg-white">
@@ -32,7 +34,7 @@ export default async function HomePage() {
           ) : (
             <>
               <Link href="/login" className={buttonClass("ghost", "md")}>Log in</Link>
-              <LinkButton href="/signup">Sign up free</LinkButton>
+              {signupsOpen && <LinkButton href="/signup">Sign up free</LinkButton>}
             </>
           )}
         </nav>
@@ -51,8 +53,8 @@ export default async function HomePage() {
             Students take the quiz on their phones — no app to install, no account to create.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
-            <LinkButton href={teacher ? "/quizzes/new" : "/signup"} size="lg">Create your first quiz</LinkButton>
-            <LinkButton href="/login" variant="outline" size="lg">Teacher login</LinkButton>
+            <LinkButton href={teacher ? "/quizzes/new" : signupsOpen ? "/signup" : "/login"} size="lg">{teacher || signupsOpen ? "Create your first quiz" : "Teacher login"}</LinkButton>
+            {(teacher || signupsOpen) && <LinkButton href="/login" variant="outline" size="lg">Teacher login</LinkButton>}
           </div>
           <p className="mt-4 text-sm text-slate-500">
             Want to explore first? Use the demo account on the <Link href="/login" className="font-medium text-indigo-600 underline">login page</Link>.

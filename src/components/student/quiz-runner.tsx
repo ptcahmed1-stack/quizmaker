@@ -370,7 +370,15 @@ export function QuizRunner({ quiz, mode, previewQuestions, previewResultSettings
   const isLast = idx === total - 1;
   const locked = timeUp && !quiz.autoSubmitOnExpiry;
   const submitting = phase === "submitting";
-  const timerTone = remaining !== null && remaining <= 60 ? "bg-rose-600 text-white" : remaining !== null && remaining <= 300 ? "bg-amber-100 text-amber-900" : "bg-slate-100 text-slate-800";
+  const limitSeconds = (quiz.timeLimitMinutes ?? 0) * 60;
+  const warnAt = Math.min(300, Math.round(limitSeconds * 0.25));
+  const urgentAt = Math.min(60, Math.round(limitSeconds * 0.1));
+  const timerTone =
+    remaining !== null && remaining <= urgentAt
+      ? "bg-rose-600 text-white"
+      : remaining !== null && remaining <= warnAt
+        ? "bg-amber-100 text-amber-900"
+        : "bg-slate-100 text-slate-800";
 
   return (
     <div className="mx-auto w-full max-w-2xl px-4 pb-32 pt-4 sm:pt-6">
@@ -385,7 +393,7 @@ export function QuizRunner({ quiz, mode, previewQuestions, previewResultSettings
             </p>
           </div>
           {remaining !== null && (
-            <div className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-sm font-bold tabular-nums", timerTone)} role="timer" aria-live={remaining <= 60 ? "assertive" : "off"} aria-label={`Time remaining ${formatClock(remaining)}`}>
+            <div className={cn("flex items-center gap-1.5 rounded-full px-3 py-1.5 font-mono text-sm font-bold tabular-nums", timerTone)} role="timer" aria-live={remaining <= urgentAt ? "assertive" : "off"} aria-label={`Time remaining ${formatClock(remaining)}`}>
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" aria-hidden><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>
               {formatClock(remaining)}
             </div>
@@ -404,8 +412,8 @@ export function QuizRunner({ quiz, mode, previewQuestions, previewResultSettings
           <button type="button" onClick={() => void submit()} className="mt-2 rounded-lg bg-rose-600 px-3 py-1.5 text-sm font-semibold text-white">Try again</button>
         </div>
       )}
-      {remaining !== null && remaining <= 60 && remaining > 0 && (
-        <p role="status" className="mb-3 text-center text-sm font-semibold text-rose-700">Less than a minute left!</p>
+      {remaining !== null && remaining <= urgentAt && remaining > 0 && (
+        <p className="mb-3 text-center text-sm font-semibold text-rose-700">Time is almost up — {remaining} {remaining === 1 ? "second" : "seconds"} left!</p>
       )}
       {locked && (
         <div role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">

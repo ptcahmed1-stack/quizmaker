@@ -9,6 +9,7 @@ import { logActivity } from "@/lib/activity";
 import { ensureAdminAccount, getPlatformSettings, logAudit } from "@/lib/admin";
 import { createSession, destroySession, hashPassword, isConfiguredAdminEmail, verifyPassword } from "@/lib/auth";
 import { DEMO_EMAIL, ensureDemoTeacher } from "@/lib/demo-data";
+import { clientIp, hit, isBlocked, reset, waitText } from "@/lib/rate-limit";
 import { baseUrlFromHeaders, generateToken, sha256 } from "@/lib/utils";
 import { loginSchema, signupSchema } from "@/lib/validation";
 
@@ -53,10 +54,22 @@ export async function login(_prev: AuthState, formData: FormData): Promise<AuthS
 
   await ensureAdminAccount().catch((err) => console.error("admin bootstrap failed", err));
 
+  // Brute-force protection: 8 failures per account+IP and 40 per IP in 15 minutes.
+  const ip = clientIp(await headers());
+  const accountKey = `login:${ip}:${email}`;
+  const ipKey = `login-ip:${ip}`;
+  const blocked = isBlocked(accountKey, 8).blocked ? isBlocked(accountKey, 8) : isBlocked(ipKey, 40);
+  if (blocked.blocked) {
+    return { error: `Too many failed log-in attempts. Please try again in ${waitText(blocked.retryAfterSeconds)}.` };
+  }
+
   const [teacher] = await db.select().from(teachers).where(eq(teachers.email, email)).limit(1);
   if (!teacher || !(await verifyPassword(password, teacher.passwordHash))) {
+    hit(accountKey, 15 * 60 * 1000);
+    hit(ipKey, 15 * 60 * 1000);
     return { error: "Incorrect email or password." };
   }
+  reset(accountKey);
   if (teacher.status === "suspended") {
     return { error: "Your account has been suspended. Please contact the administrator." };
   }
@@ -88,6 +101,9 @@ export async function forgotPassword(_prev: AuthState, formData: FormData): Prom
   const email = String(formData.get("email") ?? "").trim().toLowerCase();
   if (!email) return { error: "Please enter your email address." };
   const generic = { success: "If an account exists for that email, a password reset link has been generated." };
+  if (hit(`forgot:${clientIp(await headers())}`, 60 * 60 * 1000) > 8) {
+    return { error: "Too many reset requests. Please try again later or ask your administrator." };
+  }
 
   const [teacher] = await db.select({ id: teachers.id, name: teachers.name }).from(teachers).where(eq(teachers.email, email)).limit(1);
   if (!teacher) return generic;

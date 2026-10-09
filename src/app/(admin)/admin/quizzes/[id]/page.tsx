@@ -26,7 +26,7 @@ export default async function AdminQuizDetailPage({
   params: Promise<{ id: string }>;
   searchParams: Promise<{ ok?: string; error?: string }>;
 }) {
-  await requireAdmin();
+  const admin = await requireAdmin();
   const [{ id }, sp, hdrs] = await Promise.all([params, searchParams, headers()]);
   const data = await getQuizResultsAdmin(id);
   if (!data) notFound();
@@ -76,6 +76,8 @@ export default async function AdminQuizDetailPage({
         }
         actions={
           <>
+            <LinkButton href={`/admin/quizzes/${quiz.id}/preview`} variant="outline">Preview</LinkButton>
+            {quiz.teacherId === admin.id && <LinkButton href={`/quizzes/${quiz.id}/edit`} variant="outline">Edit quiz</LinkButton>}
             {submissions.length > 0 && <a href={`/api/quizzes/${quiz.id}/export`} download className={buttonClass("outline")}>Export CSV</a>}
             {quiz.status === "published" && (
               <ConfirmForm action={adminSetQuizStatusAction} message={`Close "${quiz.title}"? Students will no longer be able to submit.`}>
@@ -109,7 +111,7 @@ export default async function AdminQuizDetailPage({
           {studentUrl ? (
             <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
               <a href={studentUrl} target="_blank" rel="noopener noreferrer" className="break-all font-mono text-sm text-indigo-700 underline">{studentUrl}</a>
-              <div className="flex gap-2"><CopyButton text={studentUrl} size="sm" /><LinkButton href={`/quizzes/${quiz.id}/preview`} variant="ghost" size="sm">Preview</LinkButton></div>
+              <div className="flex gap-2"><CopyButton text={studentUrl} size="sm" /><LinkButton href={`/admin/quizzes/${quiz.id}/preview`} variant="ghost" size="sm">Preview</LinkButton></div>
             </div>
           ) : (
             <p className="mt-2 text-sm text-slate-500">This quiz has not been published yet, so it has no public link.</p>
@@ -160,29 +162,27 @@ export default async function AdminQuizDetailPage({
             <p className="px-5 py-8 text-center text-sm text-slate-500">Select teachers on the left. Each one gets a private copy with its own student link, and their students&apos; results appear here for you.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] text-left text-sm">
+              <table className="w-full min-w-[440px] text-left text-sm">
                 <thead className="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-500">
                   <tr>
-                    <th scope="col" className="px-5 py-3">Teacher</th>
-                    <th scope="col" className="px-3 py-3">Status</th>
-                    <th scope="col" className="px-3 py-3">Attempts</th>
-                    <th scope="col" className="px-3 py-3">Average</th>
-                    <th scope="col" className="px-3 py-3">Pass rate</th>
-                    <th scope="col" className="px-5 py-3 text-right">Results</th>
+                    <th scope="col" className="px-4 py-3">Teacher</th>
+                    <th scope="col" className="px-2 py-3">Status</th>
+                    <th scope="col" className="px-2 py-3">Attempts</th>
+                    <th scope="col" className="px-2 py-3">Average · Pass</th>
+                    <th scope="col" className="px-4 py-3 text-right"><span className="sr-only">Results</span></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {copies.map((c) => (
                     <tr key={c.id} className="hover:bg-slate-50/60">
-                      <td className="px-5 py-3">
+                      <td className="px-4 py-3">
                         <Link href={`/admin/teachers/${c.teacherId}`} className="font-semibold text-slate-900 hover:text-indigo-600">{c.teacherName}</Link>
                         <div className="flex items-center gap-1.5 text-xs text-slate-500">{c.teacherEmail}{c.teacherStatus === "suspended" && <AccountStatusBadge status="suspended" />}</div>
                       </td>
-                      <td className="px-3 py-3"><StatusBadge status={c.status} />{c.publicCode && c.status === "published" && <div className="mt-0.5 font-mono text-xs text-slate-500">{c.publicCode}</div>}</td>
-                      <td className="px-3 py-3 font-medium text-slate-900">{c.attempts}</td>
-                      <td className="px-3 py-3 text-slate-700">{formatPercent(c.averagePercentage)}</td>
-                      <td className="px-3 py-3 text-slate-700">{formatPercent(c.passRate)}</td>
-                      <td className="px-5 py-3 text-right"><LinkButton href={`/admin/quizzes/${c.id}`} variant="outline" size="sm">View</LinkButton></td>
+                      <td className="px-2 py-3"><StatusBadge status={c.status} />{c.publicCode && c.status === "published" && <div className="mt-0.5 font-mono text-xs text-slate-500">{c.publicCode}</div>}</td>
+                      <td className="px-2 py-3 font-medium text-slate-900">{c.attempts}</td>
+                      <td className="px-2 py-3 text-slate-700">{formatPercent(c.averagePercentage)} <span className="text-slate-400">·</span> {formatPercent(c.passRate)}</td>
+                      <td className="px-4 py-3 text-right"><LinkButton href={`/admin/quizzes/${c.id}`} variant="outline" size="sm">View</LinkButton></td>
                     </tr>
                   ))}
                 </tbody>

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { clientIp, hit } from "@/lib/rate-limit";
 import { startAttempt } from "@/lib/student";
 import { startAttemptSchema } from "@/lib/validation";
 
@@ -6,6 +7,10 @@ export const dynamic = "force-dynamic";
 
 export async function POST(req: Request, { params }: { params: Promise<{ code: string }> }) {
   const { code } = await params;
+  // Generous limit: a whole classroom often shares one school Wi-Fi address.
+  if (hit(`start:${clientIp(req.headers)}:${code.toUpperCase()}`, 10 * 60 * 1000) > 400) {
+    return NextResponse.json({ error: "Too many requests. Please wait a few minutes and try again." }, { status: 429 });
+  }
   let body: unknown;
   try {
     body = await req.json();
